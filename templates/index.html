@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="it">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard - Mappa Interattiva</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
+        crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f7fa;
+        }
+
+        .dashboard-container {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: auto auto auto;
+            gap: 20px;
+            padding: 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .dashboard-block {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .dashboard-block:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .block-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .block-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #2c3e50;
+            margin: 0;
+        }
+
+        .block-icon {
+            font-size: 1.5rem;
+            color: #3498db;
+        }
+
+        /* Blocco mappa (più grande) */
+        .block-map {
+            grid-column: 1 / span 2;
+            grid-row: 1 / span 2;
+            height: 600px;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+            border-radius: 8px;
+        }
+
+        /* Blocco miniere */
+        .block-mines {
+            grid-column: 3;
+            grid-row: 1;
+        }
+
+        /* Blocco consumi */
+        .block-consumption {
+            grid-column: 3;
+            grid-row: 2;
+        }
+
+        /* Blocco statistiche */
+        .block-stats {
+            grid-column: 1;
+            grid-row: 3;
+        }
+
+        /* Blocco allarmi */
+        .block-alerts {
+            grid-column: 2 / span 2;
+            grid-row: 3;
+        }
+
+        /* Stili per il contenuto dei blocchi */
+        .block-content {
+            height: calc(100% - 45px);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+        }
+
+        .stat-item {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #2c3e50;
+            margin: 5px 0;
+        }
+
+        .stat-label {
+            font-size: 0.9rem;
+            color: #7f8c8d;
+        }
+
+        .alert-item {
+            padding: 10px;
+            margin-bottom: 10px;
+            border-left: 4px solid #e74c3c;
+            background: #fef5f5;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+        }
+
+        .alert-icon {
+            margin-right: 10px;
+            color: #e74c3c;
+        }
+
+        .custom-icon {
+            background-color: #2a93d5;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            border: 2px solid white;
+            box-shadow: 0 0 4px rgba(0, 0, 0, 0.4);
+        }
+
+        .leaflet-control-attribution {
+            display: none;
+        }
+
+
+        @media (max-width: 1200px) {
+            .dashboard-container {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .block-map {
+                grid-column: 1 / span 2;
+                grid-row: 1;
+                height: 400px;
+            }
+
+            .block-mines {
+                grid-column: 1;
+                grid-row: 2;
+            }
+
+            .block-consumption {
+                grid-column: 2;
+                grid-row: 2;
+            }
+
+            .block-stats {
+                grid-column: 1;
+                grid-row: 3;
+            }
+
+            .block-alerts {
+                grid-column: 2;
+                grid-row: 3;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .dashboard-container {
+                grid-template-columns: 1fr;
+            }
+
+            .block-map,
+            .block-mines,
+            .block-consumption,
+            .block-stats,
+            .block-alerts {
+                grid-column: 1;
+            }
+
+            .block-map {
+                grid-row: 1;
+                height: 300px;
+            }
+
+            .block-mines {
+                grid-row: 2;
+            }
+
+            .block-consumption {
+                grid-row: 3;
+            }
+
+            .block-stats {
+                grid-row: 4;
+            }
+
+            .block-alerts {
+                grid-row: 5;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="dashboard-container">
+        <!-- Blocco 1: Mappa Interattiva -->
+        <div class="dashboard-block block-map">
+            <div class="block-header">
+                <h2 class="block-title">Mappa Interattiva</h2>
+                <i class="fas fa-map-marked-alt block-icon"></i>
+            </div>
+            <div class="block-content" id="map-container">
+                <div id="map"></div>
+            </div>
+        </div>
+        <!-- Blocco 2: Sicurezza -->
+        <div class="dashboard-block block-mines">
+            <div class="block-header">
+                <h2 class="block-title">Sicurezza</h2>
+                <i class="fas fa-hard-hat block-icon"></i>
+            </div>
+            <div class="block-content" id="grafico_sicurezza_container">
+                <div id="grafico_sicurezza">
+                    <p style="text-align: center; color: #7f8c8d; margin-top: 80px;">
+                        <i class="fas fa-spinner fa-spin"></i> Caricamento grafico...
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Blocco 3: Consumi -->
+        <div class="dashboard-block block-consumption">
+            <div class="block-header">
+                <h2 class="block-title">Consumi</h2>
+                <i class="fas fa-bolt block-icon"></i>
+            </div>
+            <div class="block-content">
+                <div class="stat-grid">
+                    <div class="stat-item">
+                        <div class="stat-value" id="valore_elettricita"></div>
+                        <div class="stat-label">Elettricità (GWh)</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="valore_acqua"></div>
+                        <div class="stat-label">Acqua (ML)</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="valore_co2"></div>
+                        <div class="stat-label">CO₂ (kT)</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="valore_costo_operativo"></div>
+                        <div class="stat-label">milioni AUD$</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Blocco 4: Statistiche Produzione -->
+        <div class="dashboard-block block-stats">
+            <div class="block-header">
+                <h2 class="block-title">Statistiche Produzione</h2>
+                <i class="fas fa-industry block-icon"></i>
+            </div>
+            <div class="block-content" id="grafico_produzione_container">
+                <div id="grafico_produzione">
+                    <p style="text-align: center; color: #7f8c8d; margin-top: 80px;">
+                        <i class="fas fa-spinner fa-spin"></i> Caricamento grafico...
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Blocco 5: Mercato -->
+        <div class="dashboard-block block-alerts">
+            <div class="block-header">
+                <h2 class="block-title">Evoluzione Prezzo Minerali</h2>
+                <i class="fas fa-chart-line block-icon"></i>
+            </div>
+            <div class="block-content" id="grafico_mercato_container">
+                <div id="grafico_mercato">
+                    <p style="text-align: center; color: #7f8c8d; margin-top: 80px;">
+                        <i class="fas fa-spinner fa-spin"></i> Caricamento grafico...
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+</body>
+
+</html>
