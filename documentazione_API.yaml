@@ -1,0 +1,154 @@
+openapi: 3.0.0
+info:
+  title: Dashboard API Documentation
+  description: Documentazione API per la Dashboard del settore minerario
+  version: "1.0.0"
+  contact:
+    name: Tesi Dashboard Settore Minerario
+    email: marazia.domenico@gmail.com
+
+servers:
+  - url: https://dashboard-mineraria-production.up.railway.app/
+    description: Hosting su railway
+
+paths:
+  /api/miniere:
+    get:
+      summary: Restituisce tutte le miniere
+      description: Recupera i dati delle miniere e le relative aziende dal database PostgreSQL.
+      tags:
+        - Miniere
+      responses:
+        '200':
+          description: Lista delle miniere
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id_miniera:
+                      type: integer
+                      example: 1
+                    nome:
+                      type: string
+                      example: Kalgoorlie Super Pit
+                    tipo_minerale:
+                      type: string
+                      example: Oro
+                    stato:
+                      type: string
+                      example: Attiva
+                    capacita:
+                      type: number
+                      example: 15000
+                    numero_lavoratori:
+                      type: integer
+                      example: 200
+                    latitudine:
+                      type: number
+                      format: float
+                      example: -30.7489
+                    longitudine:
+                      type: number
+                      format: float
+                      example: 121.4656
+                    nome_azienda:
+                      type: string
+                      example: Western Minerals Ltd
+
+  /api/grafico_produzione_html:
+    get:
+      summary: Restituisce il grafico Plotly in HTML
+      description: |
+        Genera un grafico Plotly HTML che mostra la quantità totale e la purezza media per ciascun tipo di minerale,
+        aggregati da tutte le miniere. Il grafico viene generato in Python e reso in formato HTML.
+      tags:
+        - Grafici
+      responses:
+        '200':
+          description: Codice HTML del grafico Plotly
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /api/grafico_sicurezza_html:
+    get:
+      summary: Restituisce il grafico a torta sulla sicurezza
+      description: Genera un grafico Plotly HTML che mostra la distribuzione dei tipi di incidente nelle miniere.
+      tags:
+        - Grafici
+      responses:
+        '200':
+          description: Codice HTML del grafico sicurezza
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /api/grafico_mercato_html:
+    get:
+      summary: Restituisce il grafico dei prezzi di mercato dei minerali
+      description: Grafico HTML che mostra l'evoluzione temporale del prezzo per ciascun tipo di minerale.
+      tags:
+        - Grafici
+      responses:
+        '200':
+          description: Codice HTML del grafico mercato
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /api/consumi_generali:
+    get:
+      summary: Restituisce le metriche aggregate sui consumi e l'impatto ambientale
+      description: |
+        Calcola e restituisce il consumo totale di elettricità, acqua, emissioni di CO2 e il costo operativo.
+        I valori sono basati sui dati di produzione e calcolati tramite coefficienti energetici, idrici e ambientali.
+      tags:
+        - Statistiche
+      responses:
+        '200':
+          description: Valori aggregati dei consumi
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  consumo_elettricita_gwh:
+                    type: number
+                    example: 1850.23
+                  consumo_acqua_ml:
+                    type: number
+                    example: 932.15
+                  emissioni_co2_kt:
+                    type: number
+                    example: 415.3
+                  costo_operativo_totale:
+                    type: number
+                    example: 11.287
+
+  /api/miniera/{miniera_id}/report:
+    get:
+      summary: Scarica il report CSV per una miniera specifica
+      description: Genera un file CSV contenente tutte le informazioni di produzione per la miniera specificata.
+      tags:
+        - Report
+      parameters:
+        - name: miniera_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: File CSV del report produzione
+          content:
+            text/csv:
+              schema:
+                type: string
+        '404':
+          description: Nessun dato disponibile per la miniera

@@ -8,21 +8,27 @@ from plotly.colors import qualitative
 from flask import send_file
 import io
 
+# Crea un Blueprint Flask chiamato 'api'.
+# I Blueprint servono per organizzare il codice in componenti riutilizzabili (es. api separate, moduli).
+# '__name__' permette a Flask di sapere dove si trova questo blueprint nel progetto.
 blueprint_api = Blueprint('api', __name__)
 
 # === Utility ===
 def get_connection():
     return psycopg2.connect(**config())
 
+
 def plotly_layout(title, margin=dict(t=40, l=40, r=40, b=40), **kwargs):
     return dict(
-        title=title,
-        template='plotly_white',
-        margin=margin,
-        **kwargs
+        title=title, # Titolo del grafico
+        template='plotly_white', # Tema bianco come sfondo (pulito e leggibile)
+        margin=margin, # Margini esterni del grafico
+        **kwargs # Estensione del layout con altri argomenti forniti
     )
 
 # === API: Miniere ===
+# Questa route API fornisce un elenco completo delle miniere presenti nel database,
+# includendo informazioni relative anche all'azienda associata.
 @blueprint_api.route("/api/miniere")
 def api_miniere():
     conn = get_connection()
@@ -32,10 +38,10 @@ def api_miniere():
         FROM miniera m
         JOIN azienda a ON m.id_azienda = a.id_azienda;
     """
-    df = pd.read_sql_query(query, conn)
-    conn.close()
+    df = pd.read_sql_query(query, conn) # Esegue la query SQL usando pandas, che restituisce i risultati come DataFrame
+    conn.close() 
 
-    return jsonify(df.to_dict(orient='records'))
+    return jsonify(df.to_dict(orient='records')) # Restituisce i dati in formato JSON, convertendo il DataFrame in un dizionario.
 
 # === API: Grafico Produzione ===
 @blueprint_api.route("/api/grafico_produzione_html")
@@ -57,7 +63,7 @@ def grafico_produzione_html():
     # Creazione del grafico con barre più larghe e colori più contrastanti
     fig = go.Figure([
         go.Bar(
-            x=df['tipo_minerale'], 
+            x=df['tipo_minerale'],
             y=df['quantita_totale'], 
             name='Quantità (ton)', 
             marker_color='#3498db',  # Blu più intenso
@@ -128,154 +134,258 @@ def grafico_produzione_html():
 # === API: Consumi Generali ===
 @blueprint_api.route("/api/consumi_generali")
 def statistiche_generali():
+    # Coefficienti per stimare il consumo di elettricità, acqua e CO₂ in base alla produzione
+    # Ogni coefficiente ha:
+    #  - "q": fattore moltiplicativo per la quantità estratta
+    #  - "t": fattore moltiplicativo per il tempo di estrazione
+    #  - "m": valore fisso legato al metodo estrattivo usato
+    #  - "div": divisore per riportare il totale nell’unità desiderata (es. GWh, ML, kt)
     COEFF = {
-        "elettricita": {"q": 0.5, "t": 20, "m": {"Frantumazione": 300, "Sotterranea": 200, "Idraulica": 150, "Cielo aperto": 100}, "div": 1_000_000},
-        "acqua": {"q": 2.5, "t": 10, "m": {"Frantumazione": 100, "Sotterranea": 80, "Idraulica": 200, "Cielo aperto": 50}, "div": 1_000_000},
-        "co2": {"q": 0.2, "t": 5, "m": {"Frantumazione": 50, "Sotterranea": 40, "Idraulica": 30, "Cielo aperto": 20}, "div": 1_000}
+        "elettricita": {
+            "q": 0.5,  # kWh per tonnellata
+            "t": 20,   # kWh per ora di estrazione
+            "m": {     # Consumo fisso per metodo
+                "Frantumazione": 300,
+                "Sotterranea": 200,
+                "Idraulica": 150,
+                "Cielo aperto": 100
+            },
+            "div": 1_000_000  # da kWh a GWh
+        },
+        "acqua": {
+            "q": 2.5,  # litri per tonnellata
+            "t": 10,   # litri per ora di estrazione
+            "m": {
+                "Frantumazione": 100,
+                "Sotterranea": 80,
+                "Idraulica": 200,
+                "Cielo aperto": 50
+            },
+            "div": 1_000_000  # da litri a megalitri (ML)
+        },
+        "co2": {
+            "q": 0.2,  # kg di CO₂ per tonnellata
+            "t": 5,    # kg di CO₂ per ora di estrazione
+            "m": {
+                "Frantumazione": 50,
+                "Sotterranea": 40,
+                "Idraulica": 30,
+                "Cielo aperto": 20
+            },
+            "div": 1_000  # da kg a tonnellate (kt)
+        }
     }
 
-    # Costo operativo in AUD
+    # Coefficienti per il calcolo del costo operativo (valuta: AUD - Dollaro Australiano)
     COSTO_OPERATIVO_AUD = {
-        "q": 24.75,
-        "t": 82.5,
-        "m": {
+        "q": 24.75,  # AUD per tonnellata estratta
+        "t": 82.5,   # AUD per ora di estrazione
+        "m": {       # costo fisso per tipo di metodo estrattivo
             "Frantumazione": 8250,
             "Sotterranea": 6600,
             "Idraulica": 5775,
             "Cielo aperto": 4125
         },
-        "div": 1_000_000
+        "div": 1_000_000  # da AUD a milioni di AUD
     }
 
+    # Connessione al database e recupero dei dati di produzione
     conn = get_connection()
     df = pd.read_sql_query("SELECT quantita, tempo_estrazione, metodo_estrattivo FROM produzione;", conn)
     conn.close()
 
+    # Funzione generica che applica la formula:
+    # (quantità × coeff["q"]) + (tempo × coeff["t"]) + (valore associato al metodo)
     def calcola(coeff):
         return (
-            df["quantita"] * coeff["q"] +
-            df["tempo_estrazione"] * coeff["t"] +
-            df["metodo_estrattivo"].map(coeff["m"]).fillna(4000)
+            df["quantita"] * coeff["q"] +                          # parte variabile per quantità
+            df["tempo_estrazione"] * coeff["t"] +                 # parte variabile per tempo
+            df["metodo_estrattivo"].map(coeff["m"]).fillna(4000)  # parte fissa per metodo, fallback 4000 se non trovato
         )
 
-    consumo_elettricita = calcola(COEFF["elettricita"])
-    consumo_acqua = calcola(COEFF["acqua"])
-    emissioni_co2 = calcola(COEFF["co2"])
-    costo_operativo_aud = calcola(COSTO_OPERATIVO_AUD)
+    # Calcolo delle tre metriche ambientali e del costo
+    consumo_elettricita = calcola(COEFF["elettricita"])  # kWh
+    consumo_acqua = calcola(COEFF["acqua"])              # litri
+    emissioni_co2 = calcola(COEFF["co2"])                # kg
+    costo_operativo_aud = calcola(COSTO_OPERATIVO_AUD)   # AUD
 
+    # Restituzione dei risultati in formato JSON, convertiti in unità di misura leggibili
     return jsonify({
-        "consumo_elettricita_gwh": round(consumo_elettricita.sum() / COEFF["elettricita"]["div"], 3),
-        "consumo_acqua_ml": round(consumo_acqua.sum() / COEFF["acqua"]["div"], 3),
-        "emissioni_co2_kt": round(emissioni_co2.sum() / COEFF["co2"]["div"], 3),
-        "costo_operativo_totale": round(costo_operativo_aud.sum() / COSTO_OPERATIVO_AUD["div"], 3)
+        "consumo_elettricita_gwh": round(consumo_elettricita.sum() / COEFF["elettricita"]["div"], 3),  # GWh
+        "consumo_acqua_ml": round(consumo_acqua.sum() / COEFF["acqua"]["div"], 3),                    # Megalitri
+        "emissioni_co2_kt": round(emissioni_co2.sum() / COEFF["co2"]["div"], 3),                      # Kiloton
+        "costo_operativo_totale": round(costo_operativo_aud.sum() / COSTO_OPERATIVO_AUD["div"], 3)    # Milioni AUD
     })
 
 
+
 # === API: Grafico Sicurezza ===
-@blueprint_api.route("/api/grafico_sicurezza_html")
+@blueprint_api.route("/api/grafico_sicurezza_html")  # Definizione dell’endpoint API accessibile via /api/grafico_sicurezza_html
 def grafico_sicurezza_html():
+    # Connessione al database PostgreSQL
     conn = get_connection()
+
+    # Query SQL per contare quanti incidenti si sono verificati per ogni tipo
     query = """
         SELECT tipo_incidente, COUNT(*) AS numero
         FROM sicurezza
         GROUP BY tipo_incidente
         ORDER BY numero DESC;
     """
+    
+    # Esecuzione della query e caricamento del risultato in un DataFrame Pandas
     df = pd.read_sql_query(query, conn)
+
+    # Chiusura connessione al database
     conn.close()
 
-    fig = go.Figure([go.Pie(labels=df['tipo_incidente'], values=df['numero'], hole=0.3)])
-    fig.update_layout(height=230, **plotly_layout(""))
+    # === Creazione del grafico a torta con Plotly ===
+    fig = go.Figure([
+        go.Pie(
+            labels=df['tipo_incidente'],  # Etichette delle sezioni: tipo di incidente
+            values=df['numero'],         # Valori associati: conteggio per tipo
+            hole=0.3                     # "Buca" interna: trasforma la torta in un donut chart
+        )
+    ])
 
+    # Imposta il layout generale del grafico
+    fig.update_layout(
+        height=230,                     # Altezza ridotta per adattarsi alla dashboard
+        **plotly_layout("")            # Applica uno stile predefinito (template bianco e margini)
+    )
+
+    # Converte il grafico Plotly in HTML (in modo da poterlo embeddare nel frontend)
     return pio.to_html(fig, full_html=False)
 
 # === API: Grafico Mercato ===
 @blueprint_api.route("/api/grafico_mercato_html")
 def grafico_mercato_html():
+    # Connessione al database PostgreSQL
     conn = get_connection()
+
+    # Query per ottenere dati di mercato ordinati per tipo minerale e data
     query = """
         SELECT tipo_minerale, data, prezzo
         FROM mercato
         ORDER BY tipo_minerale, data;
     """
-    df = pd.read_sql_query(query, conn)
-    conn.close()
+    df = pd.read_sql_query(query, conn)  # Caricamento risultati in DataFrame Pandas
+    conn.close()  # Chiusura connessione
 
-    info_minerali = {}
+    # === Analisi e calcolo variazioni per ogni tipo di minerale ===
+    info_minerali = {}  # Dizionario per contenere info su ogni minerale
+
+    # Lista dei minerali distinti presenti nella tabella mercato
     minerali = df['tipo_minerale'].unique()
+
+    # Palette di colori di Plotly per rendere le linee visivamente distinte
     palette = qualitative.Plotly
-    colori_minerali = {m: palette[i % len(palette)] for i, m in enumerate(minerali)}
+    colori_minerali = {m: palette[i % len(palette)] for i, m in enumerate(minerali)}  # Associa ogni minerale a un colore
 
+    # Ciclo su ciascun tipo di minerale per calcolare metriche di analisi
     for minerale in minerali:
-        subset = df[df['tipo_minerale'] == minerale].sort_values('data')
-        if subset.empty:
-            continue
+        subset = df[df['tipo_minerale'] == minerale].sort_values('data')  # Sottoinsieme dei dati per quel minerale
 
+        if subset.empty:
+            continue  # Se non ci sono dati, salta
+
+        # Calcolo della variazione percentuale del prezzo nel tempo
         prezzo_iniziale = subset['prezzo'].iloc[0]
         prezzo_finale = subset['prezzo'].iloc[-1]
-        variazione = ((prezzo_finale - prezzo_iniziale) / prezzo_iniziale) * 100
+        variazione = ((prezzo_finale - prezzo_iniziale) / prezzo_iniziale) * 100  # Formula Δ% = (P_f - P_i) / P_i * 100
+
+        # Calcolo deviazione standard per valutare la volatilità del prezzo
         std_dev = subset['prezzo'].std()
+
+        # Score di competizione = somma tra volatilità e variazione assoluta
         score = abs(variazione) + std_dev
 
+        # Classificazione della competizione in base allo score
         competizione = (
             "Alta" if score > 20 else
             "Media" if score >= 10 else
             "Bassa"
         )
 
+        # Salva le info nel dizionario
         info_minerali[minerale] = {
-            "variazione": round(variazione, 2),
-            "competizione": competizione,
-            "subset": subset
+            "variazione": round(variazione, 2),     # Δ%
+            "competizione": competizione,           # Livello competizione
+            "subset": subset                        # Dati grezzi da usare nel grafico
         }
 
+    # === Creazione grafico Plotly ===
     fig = go.Figure()
+
+    # Aggiunta di una traccia per ogni minerale
     for minerale, info in info_minerali.items():
         fig.add_trace(go.Scatter(
-            x=info["subset"]['data'],
-            y=info["subset"]['prezzo'],
-            mode='lines+markers',
-            name=f"{minerale} ({info['competizione']}, Δ{info['variazione']:+.1f}%)",
-            line=dict(color=colori_minerali.get(minerale, "gray"))
+            x=info["subset"]['data'],                     # Asse X: data
+            y=info["subset"]['prezzo'],                   # Asse Y: prezzo
+            mode='lines+markers',                         # Linea con punti
+            name=f"{minerale} ({info['competizione']}, Δ{info['variazione']:+.1f}%)",  # Etichetta leggibile
+            line=dict(color=colori_minerali.get(minerale, "gray"))  # Colore linea personalizzato
         ))
 
+    # Personalizzazione del layout del grafico
     fig.update_layout(**plotly_layout(
-        title="",
-        xaxis_title="Data",
-        yaxis_title="Prezzo (€)",
-        legend_title="Minerale (Competizione, Δ%)",
-        xaxis=dict(tickformat="%b %Y", tickangle=45),
-        height=500,
-        margin=dict(t=60, b=100, l=60, r=20)
+        title="",  # Nessun titolo principale
+        xaxis_title="Data",  # Etichetta asse X
+        yaxis_title="Prezzo (€)",  # Etichetta asse Y
+        legend_title="Minerale (Competizione, Δ%)",  # Titolo della legenda
+        xaxis=dict(
+            tickformat="%b %Y",  # Formato mese-anno (es. Gen 2024)
+            tickangle=45         # Angolo dell’etichetta sull’asse X
+        ),
+        height=500,  # Altezza del grafico in pixel
+        margin=dict(t=60, b=100, l=60, r=20)  # Margini del grafico
     ))
 
+    # Esporta il grafico come HTML da embeddare nel frontend
     return pio.to_html(fig, full_html=False)
 
 # === API: Scarica Report Produzione ===
-@blueprint_api.route("/api/miniera/<int:miniera_id>/report")
+@blueprint_api.route("/api/miniera/<int:miniera_id>/report")  # Definizione dell’endpoint con parametro dinamico miniera_id
 def scarica_report_produzione(miniera_id):
+    # Connessione al database PostgreSQL utilizzando la configurazione
     conn = psycopg2.connect(**config())
+
+    # Query SQL per selezionare tutti i record della produzione relativi alla miniera specificata
     query = """
         SELECT p.*
         FROM produzione p
         WHERE p.id_miniera = %s
         ORDER BY p.data;
     """
+
+    # Esecuzione della query, passando miniera_id come parametro
     df = pd.read_sql_query(query, conn, params=(miniera_id,))
+
+    # Chiusura della connessione al database
     conn.close()
 
+    # Se non ci sono dati per la miniera richiesta, restituisce un errore 404
     if df.empty:
         return "Nessun dato disponibile per questa miniera.", 404
 
-    # Salva il CSV in memoria
+    # === Esportazione del DataFrame in un file CSV ===
+    # Crea un buffer in memoria (testuale) per scrivere il CSV
     output = io.StringIO()
+
+    # Salva il contenuto del DataFrame in formato CSV, senza includere l’indice Pandas
     df.to_csv(output, index=False)
+
+    # Riporta il puntatore all’inizio del buffer
     output.seek(0)
 
+    # Nome del file da scaricare, basato sull’ID della miniera
     filename = f"report_miniera_{miniera_id}.csv"
+
+    # Restituisce il file CSV come risposta scaricabile
     return send_file(
-        io.BytesIO(output.getvalue().encode()),
-        mimetype='text/csv',
-        as_attachment=True,
-        download_name=filename
+        io.BytesIO(output.getvalue().encode()),  # Converte il contenuto testuale in byte
+        mimetype='text/csv',                     # Specifica il tipo MIME del file
+        as_attachment=True,                      # Indica al browser di scaricare il file
+        download_name=filename                   # Nome del file che verrà suggerito al download
     )
+
